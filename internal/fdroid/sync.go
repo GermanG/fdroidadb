@@ -14,6 +14,7 @@ import (
 	"fdroidadb/internal/logger"
 	"fdroidadb/internal/xdg"
 	"go.mozilla.org/pkcs7"
+	"github.com/schollz/progressbar/v3"
 )
 
 func verifyJar(path string) error {
@@ -56,7 +57,7 @@ func SyncRepo(repoURL string) error {
 	logger.Info.Printf("Syncing repo: %s", repoURL)
 
 	jarPath := filepath.Join(xdg.CacheDir(), "index-v1.jar")
-	err := downloadFile(repoURL+"/index-v1.jar", jarPath)
+	err := downloadFile(repoURL+"/index-v1.jar", jarPath, "Downloading index")
 	if err != nil {
 		return fmt.Errorf("failed to download index: %v", err)
 	}
@@ -100,33 +101,21 @@ func SyncRepo(repoURL string) error {
 	}
 
 	// Store in DB
+	bar := progressbar.Default(int64(len(index.Apps)), "Updating database")
 	count := 0
 	for _, app := range index.Apps {
 		name := app.Name
 		summary := app.Summary
 		description := app.Description
 
-		// Fallback to English if available in localized
 		if loc, ok := app.Localized["en-US"]; ok {
-			if loc.Name != "" {
-				name = loc.Name
-			}
-			if loc.Summary != "" {
-				summary = loc.Summary
-			}
-			if loc.Description != "" {
-				description = loc.Description
-			}
+			if loc.Name != "" { name = loc.Name }
+			if loc.Summary != "" { summary = loc.Summary }
+			if loc.Description != "" { description = loc.Description }
 		} else if loc, ok := app.Localized["en"]; ok {
-			if loc.Name != "" {
-				name = loc.Name
-			}
-			if loc.Summary != "" {
-				summary = loc.Summary
-			}
-			if loc.Description != "" {
-				description = loc.Description
-			}
+			if loc.Name != "" { name = loc.Name }
+			if loc.Summary != "" { summary = loc.Summary }
+			if loc.Description != "" { description = loc.Description }
 		}
 
 		dbApp := db.App{
@@ -139,6 +128,7 @@ func SyncRepo(repoURL string) error {
 		appID, err := db.SaveApp(dbApp)
 		if err != nil {
 			logger.Error.Printf("Failed to save app %s: %v", app.PackageName, err)
+			bar.Add(1)
 			continue
 		}
 
@@ -155,19 +145,17 @@ func SyncRepo(repoURL string) error {
 					APKName:     pkg.APKName,
 					Arch:        strings.Join(pkg.NativeCode, ","),
 				}
-				if err := db.SaveVersion(dbVer); err != nil {
-					logger.Warn.Printf("Failed to save version for %s: %v", app.PackageName, err)
-				}
+				db.SaveVersion(dbVer)
 			}
 		}
 		count++
+		bar.Add(1)
 	}
-
-	fmt.Printf("Synced %d apps.\n", count)
+	fmt.Printf("\nSynced %d apps.\n", count)
 	return nil
 }
 
-func downloadFile(url string, path string) error {
+func downloadFile(url string, path string, description string) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -184,6 +172,11 @@ func downloadFile(url string, path string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	bar := progressbar.DefaultBytes(
+		resp.ContentLength,
+		description,
+	)
+
+	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
 	return err
 }

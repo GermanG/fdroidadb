@@ -41,7 +41,7 @@ func Init() error {
 	dbPath := filepath.Join(dataDir, "fdroidadb.db")
 
 	var err error
-	DB, err = sql.Open("sqlite", dbPath)
+	DB, err = sql.Open("sqlite", dbPath+"?_pragma=journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %v", err)
 	}

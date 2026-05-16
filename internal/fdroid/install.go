@@ -12,6 +12,7 @@ import (
 	"fdroidadb/internal/db"
 	"fdroidadb/internal/logger"
 	"fdroidadb/internal/xdg"
+	"github.com/schollz/progressbar/v3"
 )
 
 func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int) error {
@@ -60,7 +61,7 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 	url := repoURL + "/" + bestVersion.APKName
 
 	for i := 0; i < maxRetries; i++ {
-		err = downloadFileWithResume(url, apkPath)
+		err = downloadFileWithResume(url, apkPath, "Downloading APK")
 		if err == nil {
 			break
 		}
@@ -70,8 +71,13 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 		return fmt.Errorf("failed to download APK after %d retries: %v", maxRetries, err)
 	}
 
-	logger.Info.Printf("Installing %s on %s...", bestVersion.APKName, device.Serial)
-	return device.InstallAPK(apkPath)
+	fmt.Printf("Installing %s on %s... (this may take a moment)\n", bestVersion.APKName, device.Serial)
+	err = device.InstallAPK(apkPath)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Installation successful!")
+	return nil
 }
 
 func isCompatible(verArch, devArch string) bool {
@@ -91,7 +97,7 @@ func isCompatible(verArch, devArch string) bool {
 	return false
 }
 
-func downloadFileWithResume(url string, path string) error {
+func downloadFileWithResume(url string, path string, description string) error {
 	fileInfo, err := os.Stat(path)
 	var startByte int64 = 0
 	if err == nil {
@@ -114,7 +120,6 @@ func downloadFileWithResume(url string, path string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		// Maybe already finished?
 		return nil
 	}
 
@@ -128,12 +133,25 @@ func downloadFileWithResume(url string, path string) error {
 		out, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, mode)
 	} else {
 		out, err = os.Create(path)
+		startByte = 0
 	}
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	contentLength := resp.ContentLength
+	if contentLength != -1 {
+		contentLength += startByte
+	}
+
+	bar := progressbar.DefaultBytes(
+		contentLength,
+		description,
+	)
+	bar.Add64(startByte)
+
+	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
+	fmt.Println() // New line after progress bar
 	return err
 }

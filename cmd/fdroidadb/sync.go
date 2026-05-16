@@ -10,8 +10,9 @@ import (
 )
 
 var syncCmd = &cobra.Command{
-	Use:   "sync",
+	Use:   "sync [repo_name]",
 	Short: "Synchronize application indices",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := db.Init(); err != nil {
 			return err
@@ -21,7 +22,22 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
-		for _, repo := range cfg.Repos {
+		reposToSync := cfg.Repos
+		if len(args) > 0 {
+			found := false
+			for _, repo := range cfg.Repos {
+				if repo.Name == args[0] {
+					reposToSync = []config.Repo{repo}
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("repository '%s' not found in config", args[0])
+			}
+		}
+
+		for _, repo := range reposToSync {
 			fmt.Printf("Syncing %s...\n", repo.Name)
 			if err := fdroid.SyncRepo(repo.URL); err != nil {
 				return err
