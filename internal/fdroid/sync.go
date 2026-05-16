@@ -28,14 +28,26 @@ func verifyJar(path string) error {
 	for _, f := range r.File {
 		if strings.HasPrefix(f.Name, "META-INF/") {
 			if strings.HasSuffix(f.Name, ".SF") {
-				rc, _ := f.Open()
-				sfContent, _ = io.ReadAll(rc)
+				rc, err := f.Open()
+				if err != nil {
+					return fmt.Errorf("failed to open .SF file in JAR: %v", err)
+				}
+				sfContent, err = io.ReadAll(rc)
 				rc.Close()
+				if err != nil {
+					return fmt.Errorf("failed to read .SF file in JAR: %v", err)
+				}
 			}
 			if strings.HasSuffix(f.Name, ".RSA") || strings.HasSuffix(f.Name, ".DSA") || strings.HasSuffix(f.Name, ".EC") {
-				rc, _ := f.Open()
-				sigContent, _ = io.ReadAll(rc)
+				rc, err := f.Open()
+				if err != nil {
+					return fmt.Errorf("failed to open signature file in JAR: %v", err)
+				}
+				sigContent, err = io.ReadAll(rc)
 				rc.Close()
+				if err != nil {
+					return fmt.Errorf("failed to read signature file in JAR: %v", err)
+				}
 			}
 		}
 	}
@@ -85,9 +97,15 @@ func syncV2(repoURL string) error {
 	var entryData []byte
 	for _, f := range r.File {
 		if f.Name == "entry.json" {
-			rc, _ := f.Open()
-			entryData, _ = io.ReadAll(rc)
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("failed to open entry.json in JAR: %v", err)
+			}
+			entryData, err = io.ReadAll(rc)
 			rc.Close()
+			if err != nil {
+				return fmt.Errorf("failed to read entry.json in JAR: %v", err)
+			}
 			break
 		}
 	}
@@ -95,6 +113,13 @@ func syncV2(repoURL string) error {
 	var entry EntryV2
 	if err := json.Unmarshal(entryData, &entry); err != nil {
 		return err
+	}
+
+	// Smart Sync check
+	currentHash := db.GetRepoHash(repoURL)
+	if currentHash != "" && currentHash == entry.Index.SHA256 {
+		fmt.Printf("Repository up to date (hash: %s...). Skipping full sync.\n", entry.Index.SHA256[:8])
+		return nil
 	}
 
 	indexV2Path := filepath.Join(xdg.CacheDir(), "index-v2.json")
@@ -161,13 +186,19 @@ func syncV2(repoURL string) error {
 				APKName:     ver.File.Name,
 				Arch:        strings.Join(ver.Manifest.NativeCode, ","),
 			}
-			db.SaveVersion(dbVer)
+			if err := db.SaveVersion(dbVer); err != nil {
+				logger.Warn.Printf("Failed to save version for %s: %v", pkgName, err)
+			}
 		}
 		count++
 		bar.Add(1)
 	}
 	_ = bar.Finish()
 	fmt.Printf("\nSynced %d apps (V2).\n", count)
+
+	// Update hash after successful sync
+	db.UpdateRepoHash(repoURL, entry.Index.SHA256)
+
 	return nil
 }
 
@@ -206,9 +237,15 @@ func syncV1(repoURL string) error {
 	var indexData []byte
 	for _, f := range r.File {
 		if f.Name == "index-v1.json" {
-			rc, _ := f.Open()
-			indexData, _ = io.ReadAll(rc)
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("failed to open index-v1.json in JAR: %v", err)
+			}
+			indexData, err = io.ReadAll(rc)
 			rc.Close()
+			if err != nil {
+				return fmt.Errorf("failed to read index-v1.json in JAR: %v", err)
+			}
 			break
 		}
 	}
@@ -267,7 +304,9 @@ func syncV1(repoURL string) error {
 					APKName:     pkg.APKName,
 					Arch:        strings.Join(pkg.NativeCode, ","),
 				}
-				db.SaveVersion(dbVer)
+				if err := db.SaveVersion(dbVer); err != nil {
+					logger.Warn.Printf("Failed to save version for %s: %v", app.PackageName, err)
+				}
 			}
 		}
 		count++

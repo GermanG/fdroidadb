@@ -74,6 +74,10 @@ func createTables() error {
 			PRIMARY KEY(app_id, version_code),
 			FOREIGN KEY(app_id) REFERENCES apps(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS repos (
+			url TEXT PRIMARY KEY,
+			last_index_hash TEXT
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_versions_app_id ON versions(app_id)`,
 	}
 
@@ -84,7 +88,29 @@ func createTables() error {
 	}
 
 	// Migration: Add signer column to apps table if it doesn't exist
-	_, _ = DB.Exec("ALTER TABLE apps ADD COLUMN signer TEXT")
+	// We check if the column exists first to avoid unnecessary errors
+	rows, err := DB.Query("PRAGMA table_info(apps)")
+	if err == nil {
+		signerExists := false
+		for rows.Next() {
+			var cid int
+			var name, dtype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &dtype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "signer" {
+					signerExists = true
+					break
+				}
+			}
+		}
+		rows.Close()
+		if !signerExists {
+			if _, err := DB.Exec("ALTER TABLE apps ADD COLUMN signer TEXT"); err != nil {
+				return fmt.Errorf("failed to migrate apps table: %v", err)
+			}
+		}
+	}
 
 	return nil
 }
@@ -95,7 +121,10 @@ func SaveApp(app App) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert id: %v", err)
+	}
 	return int(id), nil
 }
 
@@ -149,4 +178,18 @@ func SearchApps(query string) ([]App, error) {
 		apps = append(apps, a)
 	}
 	return apps, nil
+}
+
+func GetRepoHash(url string) string {
+	var hash string
+	err := DB.QueryRow("SELECT last_index_hash FROM repos WHERE url = ?", url).Scan(&hash)
+	if err != nil {
+		return ""
+	}
+	return hash
+}
+
+func UpdateRepoHash(url string, hash string) error {
+	_, err := DB.Exec("INSERT OR REPLACE INTO repos (url, last_index_hash) VALUES (?, ?)", url, hash)
+	return err
 }

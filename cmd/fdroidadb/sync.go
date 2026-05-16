@@ -38,7 +38,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		for _, repo := range reposToSync {
-			fmt.Printf("Syncing %s...\n", repo.Name)
+			fmt.Printf("\nSyncing %s...\n", repo.Name)
 			if err := fdroid.SyncRepo(repo.URL); err != nil {
 				return err
 			}

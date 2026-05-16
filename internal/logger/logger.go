@@ -16,9 +16,19 @@ var (
 	Warn  *log.Logger
 )
 
+const maxLogSize = 5 * 1024 * 1024 // 5MB
+
 func Init(verbose bool) error {
 	logDir := xdg.CacheDir()
 	logFile := filepath.Join(logDir, "fdroidadb.log")
+
+	// Basic rotation
+	if fi, err := os.Stat(logFile); err == nil {
+		if fi.Size() > maxLogSize {
+			oldLog := logFile + ".old"
+			_ = os.Rename(logFile, oldLog) // Ignore error if rename fails
+		}
+	}
 
 	file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {

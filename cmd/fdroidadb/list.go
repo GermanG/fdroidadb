@@ -43,8 +43,14 @@ var listCmd = &cobra.Command{
 				continue
 			}
 
-			currentCode, _ := device.GetPackageVersion(pkg)
-			versions, _ := db.GetVersions(app.ID)
+			currentCode, err := device.GetPackageVersion(pkg)
+			if err != nil {
+				currentCode = 0
+			}
+			versions, err := db.GetVersions(app.ID)
+			if err != nil {
+				continue
+			}
 			
 			if len(versions) > 0 {
 				latest := versions[0]

@@ -55,8 +55,14 @@ func GetDevices() ([]Device, error) {
 
 	var devices []Device
 	for _, d := range gadbDevices {
-		model, _ := d.RunShellCommand("getprop ro.product.model")
-		arch, _ := d.RunShellCommand("getprop ro.product.cpu.abi")
+		model, err := d.RunShellCommand("getprop ro.product.model")
+		if err != nil {
+			model = "Unknown"
+		}
+		arch, err := d.RunShellCommand("getprop ro.product.cpu.abi")
+		if err != nil {
+			arch = "Unknown"
+		}
 
 		devices = append(devices, Device{
 			Serial: d.Serial(),
@@ -104,7 +110,11 @@ func (d *Device) InstallAPK(path string) error {
 	// Always cleanup the specific file we just created
 	defer func() {
 		if remotePath != "" && strings.HasPrefix(remotePath, "/data/local/tmp/fdroidadb_") {
-			d.Adb.RunShellCommand("rm", remotePath)
+			_, err := d.Adb.RunShellCommand("rm", remotePath)
+			if err != nil {
+				// We just log it as a warning, no need to fail the whole install
+				fmt.Printf("Warning: failed to remove temporary APK on device: %v\n", err)
+			}
 		}
 	}()
 

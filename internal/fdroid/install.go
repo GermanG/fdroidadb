@@ -166,6 +166,6 @@ func downloadFileWithResume(url string, path string, description string) error {
 	bar.Add64(startByte)
 
 	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
-	fmt.Println() // New line after progress bar
+	fmt.Println()
 	return err
 }
