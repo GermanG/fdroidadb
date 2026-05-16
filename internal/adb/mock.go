@@ -36,6 +36,11 @@ func (m *MockADBDevice) PushFile(file *os.File, remotePath string, mtime ...time
 	return nil
 }
 
+func (m *MockADBDevice) PullFile(remotePath string, localPath string) error {
+	// For testing, we might need to create a dummy file
+	return os.WriteFile(localPath, []byte("fake pulled apk"), 0644)
+}
+
 func (m *MockADBDevice) Serial() string {
 	return "MOCK_SERIAL_123"
 }

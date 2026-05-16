@@ -51,6 +51,10 @@ var updateCmd = &cobra.Command{
 			if len(versions) > 0 && versions[0].VersionCode > currentCode {
 				fmt.Printf("Updating %s (%s) from %d to %d...\n", app.Name, app.PackageName, currentCode, versions[0].VersionCode)
 				if err := fdroid.InstallApp(pkg, device, repoURL, cfg.MaxRetries); err != nil {
+					if err.Error() == "signature mismatch" {
+						// Already printed explanation in InstallApp
+						continue
+					}
 					fmt.Printf("Failed to update %s: %v\n", pkg, err)
 				}
 			}

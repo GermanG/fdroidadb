@@ -26,16 +26,30 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 		}
 
 		if len(apps) > 1 {
-			fmt.Printf("Multiple apps found for '%s':\n", query)
+			// Check if one of them is an exact package name match or exact name match
+			var exactMatch *db.App
 			for _, a := range apps {
-				fmt.Printf(" - %s (%s)\n", a.Name, a.PackageName)
+				if a.PackageName == query || a.Name == query {
+					exactMatch = &a
+					break
+				}
 			}
-			return fmt.Errorf("please use the full package name to be specific")
-		}
 
-		// If exactly one match, use it
-		app = &apps[0]
-		fmt.Printf("Resolved '%s' to %s (%s)\n", query, app.Name, app.PackageName)
+			if exactMatch != nil {
+				app = exactMatch
+				fmt.Printf("Resolved '%s' to %s (%s) [prioritized exact match]\n", query, app.Name, app.PackageName)
+			} else {
+				fmt.Printf("Multiple apps found for '%s':\n", query)
+				for _, a := range apps {
+					fmt.Printf(" - %s (%s)\n", a.Name, a.PackageName)
+				}
+				return fmt.Errorf("please use the full package name to be specific")
+			}
+		} else {
+			// If exactly one match, use it
+			app = &apps[0]
+			fmt.Printf("Resolved '%s' to %s (%s)\n", query, app.Name, app.PackageName)
+		}
 	}
 
 	versions, err := db.GetVersions(app.ID)

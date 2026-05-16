@@ -17,6 +17,7 @@ type App struct {
 	Summary     string
 	Description string
 	Icon        string
+	Signer      string // Certificate fingerprint
 }
 
 type Version struct {
@@ -57,7 +58,8 @@ func createTables() error {
 			name TEXT,
 			summary TEXT,
 			description TEXT,
-			icon TEXT
+			icon TEXT,
+			signer TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS versions (
 			app_id INTEGER,
@@ -81,12 +83,15 @@ func createTables() error {
 		}
 	}
 
+	// Migration: Add signer column to apps table if it doesn't exist
+	_, _ = DB.Exec("ALTER TABLE apps ADD COLUMN signer TEXT")
+
 	return nil
 }
 
 func SaveApp(app App) (int, error) {
-	res, err := DB.Exec(`INSERT OR REPLACE INTO apps (package_name, name, summary, description, icon) 
-		VALUES (?, ?, ?, ?, ?)`, app.PackageName, app.Name, app.Summary, app.Description, app.Icon)
+	res, err := DB.Exec(`INSERT OR REPLACE INTO apps (package_name, name, summary, description, icon, signer) 
+		VALUES (?, ?, ?, ?, ?, ?)`, app.PackageName, app.Name, app.Summary, app.Description, app.Icon, app.Signer)
 	if err != nil {
 		return 0, err
 	}
@@ -102,8 +107,8 @@ func SaveVersion(v Version) error {
 
 func GetAppByPackage(packageName string) (*App, error) {
 	var a App
-	err := DB.QueryRow("SELECT id, package_name, name, summary, description, icon FROM apps WHERE package_name = ?", packageName).
-		Scan(&a.ID, &a.PackageName, &a.Name, &a.Summary, &a.Description, &a.Icon)
+	err := DB.QueryRow("SELECT id, package_name, name, summary, description, icon, signer FROM apps WHERE package_name = ?", packageName).
+		Scan(&a.ID, &a.PackageName, &a.Name, &a.Summary, &a.Description, &a.Icon, &a.Signer)
 	if err != nil {
 		return nil, err
 	}

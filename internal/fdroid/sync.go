@@ -56,19 +56,147 @@ func verifyJar(path string) error {
 func SyncRepo(repoURL string) error {
 	logger.Info.Printf("Syncing repo: %s", repoURL)
 
+	err := syncV2(repoURL)
+	if err == nil {
+		return nil
+	}
+	logger.Warn.Printf("V2 sync failed, falling back to V1: %v", err)
+
+	return syncV1(repoURL)
+}
+
+func syncV2(repoURL string) error {
+	entryJarPath := filepath.Join(xdg.CacheDir(), "entry.jar")
+	err := downloadFile(repoURL+"/entry.jar", entryJarPath, "Downloading entry.jar")
+	if err != nil {
+		return err
+	}
+
+	if err := verifyJar(entryJarPath); err != nil {
+		return fmt.Errorf("entry.jar verification failed: %v", err)
+	}
+
+	r, err := zip.OpenReader(entryJarPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	var entryData []byte
+	for _, f := range r.File {
+		if f.Name == "entry.json" {
+			rc, _ := f.Open()
+			entryData, _ = io.ReadAll(rc)
+			rc.Close()
+			break
+		}
+	}
+
+	var entry EntryV2
+	if err := json.Unmarshal(entryData, &entry); err != nil {
+		return err
+	}
+
+	indexV2Path := filepath.Join(xdg.CacheDir(), "index-v2.json")
+	err = downloadFile(repoURL+"/index-v2.json", indexV2Path, "Downloading index-v2.json")
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(indexV2Path)
+	if err != nil {
+		return err
+	}
+
+	var index IndexV2
+	if err := json.Unmarshal(data, &index); err != nil {
+		return err
+	}
+
+	bar := progressbar.Default(int64(len(index.Packages)), "Updating database (V2)")
+	count := 0
+	for pkgName, pkg := range index.Packages {
+		name := getBestString(pkg.Metadata.Name)
+		summary := getBestString(pkg.Metadata.Summary)
+		description := getBestString(pkg.Metadata.Description)
+
+		signer := ""
+		for _, ver := range pkg.Versions {
+			if ver.Manifest.Signer != nil && len(ver.Manifest.Signer.SHA256) > 0 {
+				signer = ver.Manifest.Signer.SHA256[0]
+				break
+			}
+		}
+
+		dbApp := db.App{
+			PackageName: pkgName,
+			Name:        name,
+			Summary:     summary,
+			Description: description,
+			Icon:        getBestIcon(pkg.Metadata.Icon),
+			Signer:      signer,
+		}
+		appID, err := db.SaveApp(dbApp)
+		if err != nil {
+			bar.Add(1)
+			continue
+		}
+
+		for _, ver := range pkg.Versions {
+			minSDK := 0
+			targetSDK := 0
+			if ver.Manifest.UsesSDK != nil {
+				minSDK = ver.Manifest.UsesSDK.MinSDK
+				targetSDK = ver.Manifest.UsesSDK.TargetSDK
+			}
+
+			dbVer := db.Version{
+				AppID:       appID,
+				VersionName: ver.Manifest.VersionName,
+				VersionCode: ver.Manifest.VersionCode,
+				MinSDK:      minSDK,
+				TargetSDK:   targetSDK,
+				Size:        ver.File.Size,
+				Hash:        ver.File.SHA256,
+				APKName:     ver.File.Name,
+				Arch:        strings.Join(ver.Manifest.NativeCode, ","),
+			}
+			db.SaveVersion(dbVer)
+		}
+		count++
+		bar.Add(1)
+	}
+	_ = bar.Finish()
+	fmt.Printf("\nSynced %d apps (V2).\n", count)
+	return nil
+}
+
+func getBestString(m map[string]string) string {
+	if s, ok := m["en-US"]; ok { return s }
+	if s, ok := m["en"]; ok { return s }
+	for _, s := range m { return s }
+	return ""
+}
+
+func getBestIcon(m map[string]LocalizedFileV2) string {
+	if f, ok := m["en-US"]; ok { return f.Name }
+	if f, ok := m["en"]; ok { return f.Name }
+	for _, f := range m { return f.Name }
+	return ""
+}
+
+func syncV1(repoURL string) error {
 	jarPath := filepath.Join(xdg.CacheDir(), "index-v1.jar")
-	err := downloadFile(repoURL+"/index-v1.jar", jarPath, "Downloading index")
+	err := downloadFile(repoURL+"/index-v1.jar", jarPath, "Downloading index (V1)")
 	if err != nil {
 		return fmt.Errorf("failed to download index: %v", err)
 	}
 
-	// Verify signature
 	err = verifyJar(jarPath)
 	if err != nil {
 		return fmt.Errorf("index signature verification failed: %v", err)
 	}
 
-	// Extract index-v1.json
 	r, err := zip.OpenReader(jarPath)
 	if err != nil {
 		return err
@@ -78,30 +206,19 @@ func SyncRepo(repoURL string) error {
 	var indexData []byte
 	for _, f := range r.File {
 		if f.Name == "index-v1.json" {
-			rc, err := f.Open()
-			if err != nil {
-				return err
-			}
-			indexData, err = io.ReadAll(rc)
+			rc, _ := f.Open()
+			indexData, _ = io.ReadAll(rc)
 			rc.Close()
-			if err != nil {
-				return err
-			}
 			break
 		}
 	}
 
-	if len(indexData) == 0 {
-		return fmt.Errorf("index-v1.json not found in JAR")
-	}
-
 	var index IndexV1
 	if err := json.Unmarshal(indexData, &index); err != nil {
-		return fmt.Errorf("failed to parse index JSON: %v", err)
+		return err
 	}
 
-	// Store in DB
-	bar := progressbar.Default(int64(len(index.Apps)), "Updating database")
+	bar := progressbar.Default(int64(len(index.Apps)), "Updating database (V1)")
 	count := 0
 	for _, app := range index.Apps {
 		name := app.Name
@@ -118,16 +235,21 @@ func SyncRepo(repoURL string) error {
 			if loc.Description != "" { description = loc.Description }
 		}
 
+		signer := ""
+		if pkgs, ok := index.Packages[app.PackageName]; ok && len(pkgs) > 0 {
+			signer = pkgs[0].Signer
+		}
+
 		dbApp := db.App{
 			PackageName: app.PackageName,
 			Name:        name,
 			Summary:     summary,
 			Description: description,
 			Icon:        app.Icon,
+			Signer:      signer,
 		}
 		appID, err := db.SaveApp(dbApp)
 		if err != nil {
-			logger.Error.Printf("Failed to save app %s: %v", app.PackageName, err)
 			bar.Add(1)
 			continue
 		}
@@ -151,7 +273,8 @@ func SyncRepo(repoURL string) error {
 		count++
 		bar.Add(1)
 	}
-	fmt.Printf("\nSynced %d apps.\n", count)
+	_ = bar.Finish()
+	fmt.Printf("\nSynced %d apps (V1).\n", count)
 	return nil
 }
 
@@ -178,5 +301,7 @@ func downloadFile(url string, path string, description string) error {
 	)
 
 	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
+	_ = bar.Finish()
+	fmt.Println()
 	return err
 }
