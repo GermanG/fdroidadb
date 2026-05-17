@@ -87,31 +87,6 @@ func createTables() error {
 		}
 	}
 
-	// Migration: Add signer column to apps table if it doesn't exist
-	// We check if the column exists first to avoid unnecessary errors
-	rows, err := DB.Query("PRAGMA table_info(apps)")
-	if err == nil {
-		signerExists := false
-		for rows.Next() {
-			var cid int
-			var name, dtype string
-			var notnull, pk int
-			var dfltValue interface{}
-			if err := rows.Scan(&cid, &name, &dtype, &notnull, &dfltValue, &pk); err == nil {
-				if name == "signer" {
-					signerExists = true
-					break
-				}
-			}
-		}
-		rows.Close()
-		if !signerExists {
-			if _, err := DB.Exec("ALTER TABLE apps ADD COLUMN signer TEXT"); err != nil {
-				return fmt.Errorf("failed to migrate apps table: %v", err)
-			}
-		}
-	}
-
 	return nil
 }
 
