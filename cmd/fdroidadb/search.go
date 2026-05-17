@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"fdroidadb/internal/db"
+	"github.com/GermanG/fdroidadb/internal/db"
 	"github.com/spf13/cobra"
 )
 

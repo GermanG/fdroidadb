@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"fdroidadb/internal/db"
-	"fdroidadb/internal/logger"
-	"fdroidadb/internal/xdg"
+	"github.com/GermanG/fdroidadb/internal/db"
+	"github.com/GermanG/fdroidadb/internal/logger"
+	"github.com/GermanG/fdroidadb/internal/xdg"
 	"go.mozilla.org/pkcs7"
 	"github.com/schollz/progressbar/v3"
 )

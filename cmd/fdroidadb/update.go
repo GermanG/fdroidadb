@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	"fdroidadb/internal/adb"
-	"fdroidadb/internal/config"
-	"fdroidadb/internal/db"
-	"fdroidadb/internal/fdroid"
+	"github.com/GermanG/fdroidadb/internal/adb"
+	"github.com/GermanG/fdroidadb/internal/config"
+	"github.com/GermanG/fdroidadb/internal/db"
+	"github.com/GermanG/fdroidadb/internal/fdroid"
 	"github.com/spf13/cobra"
 )
 

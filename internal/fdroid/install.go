@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"fdroidadb/internal/adb"
-	"fdroidadb/internal/db"
-	"fdroidadb/internal/logger"
-	"fdroidadb/internal/xdg"
+	"github.com/GermanG/fdroidadb/internal/adb"
+	"github.com/GermanG/fdroidadb/internal/db"
+	"github.com/GermanG/fdroidadb/internal/logger"
+	"github.com/GermanG/fdroidadb/internal/xdg"
 	"github.com/schollz/progressbar/v3"
 )
 

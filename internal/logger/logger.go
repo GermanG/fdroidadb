@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"fdroidadb/internal/xdg"
+	"github.com/GermanG/fdroidadb/internal/xdg"
 )
 
 var (

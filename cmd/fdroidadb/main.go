@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"fdroidadb/internal/config"
-	"fdroidadb/internal/logger"
-	"fdroidadb/internal/xdg"
+	"github.com/GermanG/fdroidadb/internal/config"
+	"github.com/GermanG/fdroidadb/internal/logger"
+	"github.com/GermanG/fdroidadb/internal/xdg"
 	"github.com/spf13/cobra"
 )
 

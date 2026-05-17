@@ -1,4 +1,4 @@
-module fdroidadb
+module github.com/GermanG/fdroidadb
 
 go 1.26.3
 
