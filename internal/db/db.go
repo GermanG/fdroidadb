@@ -174,7 +174,8 @@ func GetVersions(appID int, repoURL string) ([]Version, error) {
 
 func SearchApps(query string) ([]App, error) {
 	// Group by package name to avoid showing the same app multiple times if it's in multiple repos
-	rows, err := DB.Query("SELECT id, package_name, name, summary, repo_url FROM apps WHERE name LIKE ? OR package_name LIKE ? GROUP BY package_name", "%"+query+"%", "%"+query+"%")
+	// Search in name, package_name AND summary
+	rows, err := DB.Query("SELECT id, package_name, name, summary, repo_url FROM apps WHERE name LIKE ? OR package_name LIKE ? OR summary LIKE ? GROUP BY package_name", "%"+query+"%", "%"+query+"%", "%"+query+"%")
 	if err != nil {
 		return nil, err
 	}
