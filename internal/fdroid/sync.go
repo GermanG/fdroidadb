@@ -9,6 +9,7 @@ package fdroid
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,7 +25,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-func verifyJar(path string) error {
+func verifyJar(path string, expectedFingerprint string) error {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		return err
@@ -69,7 +70,21 @@ func verifyJar(path string) error {
 	}
 
 	p7.Content = sfContent
-	return p7.Verify()
+	if err := p7.Verify(); err != nil {
+		return err
+	}
+
+	// Verify against fingerprint if provided
+	if expectedFingerprint != "" {
+		cert := p7.Certificates[0]
+		fingerprint := sha256.Sum256(cert.Raw)
+		fpStr := fmt.Sprintf("%x", fingerprint)
+		if strings.ToLower(fpStr) != strings.ToLower(expectedFingerprint) {
+			return fmt.Errorf("repository fingerprint mismatch!\n  Expected: %s\n  Found:    %s", expectedFingerprint, fpStr)
+		}
+	}
+
+	return nil
 }
 
 func SyncRepo(repoURL string) error {
@@ -91,7 +106,10 @@ func syncV2(repoURL string) error {
 		return err
 	}
 
-	if err := verifyJar(entryJarPath); err != nil {
+	// Get expected fingerprint from DB
+	expectedFingerprint := db.GetRepoFingerprint(repoURL)
+
+	if err := verifyJar(entryJarPath, expectedFingerprint); err != nil {
 		return fmt.Errorf("entry.jar verification failed: %v", err)
 	}
 
@@ -122,7 +140,6 @@ func syncV2(repoURL string) error {
 		return err
 	}
 
-	// Smart Sync check
 	currentHash := db.GetRepoHash(repoURL)
 	if currentHash != "" && currentHash == entry.Index.SHA256 {
 		fmt.Printf("Repository up to date (hash: %s...). Skipping full sync.\n", entry.Index.SHA256[:8])
@@ -167,6 +184,7 @@ func syncV2(repoURL string) error {
 			Description: description,
 			Icon:        getBestIcon(pkg.Metadata.Icon),
 			Signer:      signer,
+			RepoURL:     repoURL,
 		}
 		appID, err := db.SaveApp(dbApp)
 		if err != nil {
@@ -192,6 +210,7 @@ func syncV2(repoURL string) error {
 				Hash:        ver.File.SHA256,
 				APKName:     ver.File.Name,
 				Arch:        strings.Join(ver.Manifest.NativeCode, ","),
+				RepoURL:     repoURL,
 			}
 			if err := db.SaveVersion(dbVer); err != nil {
 				logger.Warn.Printf("Failed to save version for %s: %v", pkgName, err)
@@ -203,7 +222,6 @@ func syncV2(repoURL string) error {
 	_ = bar.Finish()
 	fmt.Printf("\nSynced %d apps (V2).\n", count)
 
-	// Update hash after successful sync
 	db.UpdateRepoHash(repoURL, entry.Index.SHA256)
 
 	return nil
@@ -230,7 +248,8 @@ func syncV1(repoURL string) error {
 		return fmt.Errorf("failed to download index: %v", err)
 	}
 
-	err = verifyJar(jarPath)
+	expectedFingerprint := db.GetRepoFingerprint(repoURL)
+	err = verifyJar(jarPath, expectedFingerprint)
 	if err != nil {
 		return fmt.Errorf("index signature verification failed: %v", err)
 	}
@@ -291,6 +310,7 @@ func syncV1(repoURL string) error {
 			Description: description,
 			Icon:        app.Icon,
 			Signer:      signer,
+			RepoURL:     repoURL,
 		}
 		appID, err := db.SaveApp(dbApp)
 		if err != nil {
@@ -310,6 +330,7 @@ func syncV1(repoURL string) error {
 					Hash:        pkg.Hash,
 					APKName:     pkg.APKName,
 					Arch:        strings.Join(pkg.NativeCode, ","),
+					RepoURL:     repoURL,
 				}
 				if err := db.SaveVersion(dbVer); err != nil {
 					logger.Warn.Printf("Failed to save version for %s: %v", app.PackageName, err)

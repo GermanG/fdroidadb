@@ -45,8 +45,8 @@ var listCmd = &cobra.Command{
 
 		fmt.Printf("Installed F-Droid Apps on %s:\n", device.Serial)
 		for _, pkg := range packages {
-			app, err := db.GetAppByPackage(pkg)
-			if err != nil {
+			apps, err := db.GetAppByPackage(pkg)
+			if err != nil || len(apps) == 0 {
 				continue
 			}
 
@@ -54,18 +54,25 @@ var listCmd = &cobra.Command{
 			if err != nil {
 				currentCode = 0
 			}
-			versions, err := db.GetVersions(app.ID)
-			if err != nil {
-				continue
+
+			var bestVersion *db.Version
+			for _, app := range apps {
+				versions, err := db.GetVersions(app.ID, app.RepoURL)
+				if err != nil || len(versions) == 0 {
+					continue
+				}
+				if bestVersion == nil || versions[0].VersionCode > bestVersion.VersionCode {
+					v := versions[0]
+					bestVersion = &v
+				}
 			}
 			
-			if len(versions) > 0 {
-				latest := versions[0]
+			if bestVersion != nil {
 				status := ""
-				if latest.VersionCode > currentCode {
+				if bestVersion.VersionCode > currentCode {
 					status = " [UPDATE AVAILABLE]"
 				}
-				fmt.Printf("%s (%s)\n  Installed: %d, Latest: %d (%s)%s\n", app.Name, app.PackageName, currentCode, latest.VersionCode, latest.VersionName, status)
+				fmt.Printf("%s (%s)\n  Installed: %d, Latest: %d (%s)%s\n", apps[0].Name, pkg, currentCode, bestVersion.VersionCode, bestVersion.VersionName, status)
 			}
 		}
 

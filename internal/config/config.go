@@ -16,8 +16,9 @@ import (
 )
 
 type Repo struct {
-	Name string `yaml:"name"`
-	URL  string `yaml:"url"`
+	Name        string `yaml:"name"`
+	URL         string `yaml:"url"`
+	Fingerprint string `yaml:"fingerprint,omitempty"`
 }
 
 type Config struct {

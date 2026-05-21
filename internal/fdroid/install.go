@@ -23,19 +23,34 @@ import (
 )
 
 func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int) error {
+	var app *db.App
+	
 	// First, try exact package name
-	app, err := db.GetAppByPackage(query)
-	if err != nil {
+	apps, err := db.GetAppByPackage(query)
+	if err == nil && len(apps) > 0 {
+		// If found multiple, try to match the preferred repoURL if provided
+		for _, a := range apps {
+			if repoURL == "" || a.RepoURL == repoURL {
+				app = &a
+				break
+			}
+		}
+		if app == nil {
+			app = &apps[0]
+		}
+	}
+
+	if app == nil {
 		// If not found, try searching by name
-		apps, searchErr := db.SearchApps(query)
-		if searchErr != nil || len(apps) == 0 {
+		searchApps, searchErr := db.SearchApps(query)
+		if searchErr != nil || len(searchApps) == 0 {
 			return fmt.Errorf("app '%s' not found in database (tried package name and search)", query)
 		}
 
-		if len(apps) > 1 {
+		if len(searchApps) > 1 {
 			// Check if one of them is an exact package name match or exact name match
 			var exactMatch *db.App
-			for _, a := range apps {
+			for _, a := range searchApps {
 				if a.PackageName == query || a.Name == query {
 					exactMatch = &a
 					break
@@ -47,19 +62,25 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 				fmt.Printf("Resolved '%s' to %s (%s) [prioritized exact match]\n", query, app.Name, app.PackageName)
 			} else {
 				fmt.Printf("Multiple apps found for '%s':\n", query)
-				for _, a := range apps {
+				for _, a := range searchApps {
 					fmt.Printf(" - %s (%s)\n", a.Name, a.PackageName)
 				}
 				return fmt.Errorf("please use the full package name to be specific")
 			}
 		} else {
 			// If exactly one match, use it
-			app = &apps[0]
+			app = &searchApps[0]
 			fmt.Printf("Resolved '%s' to %s (%s)\n", query, app.Name, app.PackageName)
 		}
 	}
 
-	versions, err := db.GetVersions(app.ID)
+	// Now we have the app and its RepoURL
+	actualRepoURL := app.RepoURL
+	if repoURL != "" {
+		actualRepoURL = repoURL
+	}
+
+	versions, err := db.GetVersions(app.ID, actualRepoURL)
 	if err != nil {
 		return err
 	}
@@ -79,7 +100,7 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 	logger.Info.Printf("Best version: %s (code %d)", bestVersion.VersionName, bestVersion.VersionCode)
 
 	apkPath := filepath.Join(xdg.CacheDir(), bestVersion.APKName)
-	url := repoURL + "/" + bestVersion.APKName
+	url := actualRepoURL + "/" + bestVersion.APKName
 
 	for i := 0; i < maxRetries; i++ {
 		err = downloadFileWithResume(url, apkPath, "Downloading APK")
@@ -173,6 +194,7 @@ func downloadFileWithResume(url string, path string, description string) error {
 	bar.Add64(startByte)
 
 	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
+	_ = bar.Finish()
 	fmt.Println()
 	return err
 }

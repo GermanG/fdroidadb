@@ -54,11 +54,10 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
-		repoURL := cfg.Repos[0].URL
-
 		for _, pkg := range packages {
-			app, err := db.GetAppByPackage(pkg)
-			if err != nil {
+			// Get all instances of this app across all repos
+			apps, err := db.GetAppByPackage(pkg)
+			if err != nil || len(apps) == 0 {
 				continue
 			}
 
@@ -66,18 +65,29 @@ var updateCmd = &cobra.Command{
 			if err != nil {
 				currentCode = 0
 			}
-			versions, err := db.GetVersions(app.ID)
-			if err != nil {
-				continue
+
+			var bestVersion *db.Version
+			var bestRepoURL string
+
+			for _, app := range apps {
+				versions, err := db.GetVersions(app.ID, app.RepoURL)
+				if err != nil || len(versions) == 0 {
+					continue
+				}
+
+				latest := versions[0]
+				if latest.VersionCode > currentCode {
+					if bestVersion == nil || latest.VersionCode > bestVersion.VersionCode {
+						v := latest
+						bestVersion = &v
+						bestRepoURL = app.RepoURL
+					}
+				}
 			}
 
-			if len(versions) > 0 && versions[0].VersionCode > currentCode {
-				fmt.Printf("Updating %s (%s) from %d to %d...\n", app.Name, app.PackageName, currentCode, versions[0].VersionCode)
-				if err := fdroid.InstallApp(pkg, device, repoURL, cfg.MaxRetries); err != nil {
-					if err.Error() == "signature mismatch" {
-						// Already printed explanation in InstallApp
-						continue
-					}
+			if bestVersion != nil {
+				fmt.Printf("Updating %s (%s) from %d to %d (via %s)...\n", apps[0].Name, pkg, currentCode, bestVersion.VersionCode, bestRepoURL)
+				if err := fdroid.InstallApp(pkg, device, bestRepoURL, cfg.MaxRetries); err != nil {
 					fmt.Printf("Failed to update %s: %v\n", pkg, err)
 				}
 			}

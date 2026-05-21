@@ -42,16 +42,18 @@ var installCmd = &cobra.Command{
 
 		fmt.Printf("Selected device: %s (%s)\n", device.Model, device.Serial)
 
-		var lastErr error
-		for _, repo := range cfg.Repos {
-			err := fdroid.InstallApp(args[0], device, repo.URL, cfg.MaxRetries)
-			if err == nil {
-				return nil
-			}
-			lastErr = err
+		// Search for the app in the database to find its RepoURL
+		apps, err := db.GetAppByPackage(args[0])
+		if err != nil || len(apps) == 0 {
+			// If not found by package name, try search resolution in InstallApp
+			// But we still need a repo URL to start.
+			// Let's call InstallApp with the first repo URL as a fallback, 
+			// it will handle search resolution.
+			return fdroid.InstallApp(args[0], device, cfg.Repos[0].URL, cfg.MaxRetries)
 		}
 
-		return fmt.Errorf("could not install app from any repository. Last error: %v", lastErr)
+		// Try to install from the first repo that has it
+		return fdroid.InstallApp(args[0], device, apps[0].RepoURL, cfg.MaxRetries)
 	},
 }
 
