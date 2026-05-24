@@ -54,4 +54,31 @@ func TestDBInitAndOps(t *testing.T) {
 	if apps[0].Name != "Test App" {
 		t.Errorf("expected Test App, got %s", apps[0].Name)
 	}
+
+	// Test UPSERT: update the app and verify the ID is preserved
+	appUpdated := App{
+		PackageName: "org.test.app",
+		Name:        "Test App Updated",
+		Summary:     "A test app with updated summary",
+	}
+
+	id2, err := SaveApp(appUpdated)
+	if err != nil {
+		t.Fatalf("failed to update app: %v", err)
+	}
+
+	if id != id2 {
+		t.Errorf("expected ID to be preserved across updates (UPSERT), got first ID: %d, second ID: %d", id, id2)
+	}
+
+	apps2, err := SearchApps("Updated")
+	if err != nil {
+		t.Fatalf("failed to search apps: %v", err)
+	}
+	if len(apps2) != 1 {
+		t.Errorf("expected 1 app matching 'Updated', got %d", len(apps2))
+	}
+	if apps2[0].Name != "Test App Updated" {
+		t.Errorf("expected Test App Updated, got %s", apps2[0].Name)
+	}
 }

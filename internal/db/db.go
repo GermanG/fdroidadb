@@ -109,17 +109,24 @@ func createTables() error {
 		_, _ = DB.Exec("DROP TABLE IF EXISTS versions")
 		_, _ = DB.Exec("DROP TABLE IF EXISTS apps")
 		_, _ = DB.Exec("DELETE FROM repos") // Force full re-sync
-		return createTables() // Recurse once to recreate
+		return createTables()               // Recurse once to recreate
 	}
 
 	return nil
 }
 
 func SaveApp(app App) (int, error) {
-	// We use INSERT OR REPLACE. Since we have UNIQUE(package_name, repo_url), 
-	// it will update the entry if the same app exists in the same repo.
-	res, err := DB.Exec(`INSERT OR REPLACE INTO apps (package_name, name, summary, description, icon, signer, repo_url) 
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, app.PackageName, app.Name, app.Summary, app.Description, app.Icon, app.Signer, app.RepoURL)
+	// We use INSERT ON CONFLICT DO UPDATE (UPSERT). This preserves the same primary key (id)
+	// for the app, preventing orphan records in the versions table when the app is updated.
+	res, err := DB.Exec(`INSERT INTO apps (package_name, name, summary, description, icon, signer, repo_url) 
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(package_name, repo_url) DO UPDATE SET
+			name = excluded.name,
+			summary = excluded.summary,
+			description = excluded.description,
+			icon = excluded.icon,
+			signer = excluded.signer`,
+		app.PackageName, app.Name, app.Summary, app.Description, app.Icon, app.Signer, app.RepoURL)
 	if err != nil {
 		return 0, err
 	}
@@ -127,6 +134,17 @@ func SaveApp(app App) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last insert id: %v", err)
 	}
+
+	// In SQLite, if the row was updated instead of inserted, LastInsertId() returns
+	// the rowid of the updated row. However, to be 100% robust across all environments,
+	// if it returns 0, we query the ID.
+	if id == 0 {
+		err = DB.QueryRow("SELECT id FROM apps WHERE package_name = ? AND repo_url = ?", app.PackageName, app.RepoURL).Scan(&id)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get app id after upsert: %v", err)
+		}
+	}
+
 	return int(id), nil
 }
 
@@ -173,9 +191,10 @@ func GetVersions(appID int, repoURL string) ([]Version, error) {
 }
 
 func SearchApps(query string) ([]App, error) {
-	// Group by package name to avoid showing the same app multiple times if it's in multiple repos
 	// Search in name, package_name AND summary
-	rows, err := DB.Query("SELECT id, package_name, name, summary, repo_url FROM apps WHERE name LIKE ? OR package_name LIKE ? OR summary LIKE ? GROUP BY package_name", "%"+query+"%", "%"+query+"%", "%"+query+"%")
+	// We don't GROUP BY here so we can see all repos that have the app,
+	// or we handle duplicates in the UI.
+	rows, err := DB.Query("SELECT id, package_name, name, summary, repo_url FROM apps WHERE name LIKE ? OR package_name LIKE ? OR summary LIKE ?", "%"+query+"%", "%"+query+"%", "%"+query+"%")
 	if err != nil {
 		return nil, err
 	}

@@ -24,6 +24,7 @@ var rootCmd = &cobra.Command{
 	Use:   "fdroidadb",
 	Short: "F-Droid client for Android via ADB",
 	Long:  `A command line tool to manage F-Droid applications on your Android device using ADB.`,
+	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := xdg.EnsureDirs(); err != nil {
 			return fmt.Errorf("failed to create directories: %v", err)

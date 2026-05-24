@@ -45,10 +45,17 @@ func TestInstallAppLogic(t *testing.T) {
 	}
 	defer db.DB.Close()
 
-	// 1. Seed the database
+	// 1. Setup a dummy server for download
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("fake apk content"))
+	}))
+	defer ts.Close()
+
+	// 2. Seed the database
 	appID, err := db.SaveApp(db.App{
 		PackageName: "org.test.app",
 		Name:        "Test App",
+		RepoURL:     ts.URL,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,24 +67,19 @@ func TestInstallAppLogic(t *testing.T) {
 		VersionCode: 10,
 		APKName:     "test-1.0.apk",
 		Arch:        "arm64-v8a",
+		RepoURL:     ts.URL,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// 2. Setup mock device
+	// 3. Setup mock device
 	mockAdb := adb.NewMockADBDevice()
 	device := &adb.Device{
 		Serial: "MOCK_SERIAL",
 		Arch:   "arm64-v8a",
 		Adb:    mockAdb,
 	}
-
-	// 3. Setup a dummy server for download
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("fake apk content"))
-	}))
-	defer ts.Close()
 
 	// 4. Run InstallApp
 	err = InstallApp("org.test.app", device, ts.URL, 3)

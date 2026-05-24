@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/GermanG/fdroidadb/internal/adb"
@@ -24,31 +25,54 @@ import (
 
 func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int) error {
 	var app *db.App
-	
+
 	// First, try exact package name
 	apps, err := db.GetAppByPackage(query)
 	if err == nil && len(apps) > 0 {
-		// If found multiple, try to match the preferred repoURL if provided
-		for _, a := range apps {
-			if repoURL == "" || a.RepoURL == repoURL {
-				app = &a
-				break
+		if len(apps) > 1 {
+			// If no specific repoURL was provided, we must ask or pick the best one
+			if repoURL == "" {
+				fmt.Printf("\nApp '%s' found in multiple repositories:\n", query)
+				for i, a := range apps {
+					fmt.Printf("[%d] %s (via %s)\n", i+1, a.Name, a.RepoURL)
+				}
+				fmt.Printf("Select number (1-%d) or 'q' to cancel: ", len(apps))
+				var input string
+				fmt.Scanln(&input)
+				if strings.ToLower(input) == "q" {
+					return fmt.Errorf("cancelled")
+				}
+				idx, err := strconv.Atoi(input)
+				if err != nil || idx < 1 || idx > len(apps) {
+					return fmt.Errorf("invalid selection")
+				}
+				app = &apps[idx-1]
+			} else {
+				// Try to find the app in the specific repo requested
+				for _, a := range apps {
+					if a.RepoURL == repoURL {
+						app = &a
+						break
+					}
+				}
+				if app == nil {
+					app = &apps[0]
+				}
 			}
-		}
-		if app == nil {
+		} else {
 			app = &apps[0]
 		}
 	}
 
 	if app == nil {
-		// If not found, try searching by name
+		// If not found, try searching by name/summary
 		searchApps, searchErr := db.SearchApps(query)
 		if searchErr != nil || len(searchApps) == 0 {
-			return fmt.Errorf("app '%s' not found in database (tried package name and search)", query)
+			return fmt.Errorf("app '%s' not found in database", query)
 		}
 
 		if len(searchApps) > 1 {
-			// Check if one of them is an exact package name match or exact name match
+			// Check for exact name match among search results
 			var exactMatch *db.App
 			for _, a := range searchApps {
 				if a.PackageName == query || a.Name == query {
@@ -59,26 +83,34 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 
 			if exactMatch != nil {
 				app = exactMatch
-				fmt.Printf("Resolved '%s' to %s (%s) [prioritized exact match]\n", query, app.Name, app.PackageName)
+				fmt.Printf("Resolved '%s' to %s (%s) [exact match]\n", query, app.Name, app.PackageName)
 			} else {
-				fmt.Printf("Multiple apps found for '%s':\n", query)
-				for _, a := range searchApps {
-					fmt.Printf(" - %s (%s)\n", a.Name, a.PackageName)
+				fmt.Printf("\nMultiple apps found for '%s':\n", query)
+				for i, a := range searchApps {
+					fmt.Printf("[%d] %s (%s) [via %s]\n    %s\n", i+1, a.Name, a.PackageName, a.RepoURL, a.Summary)
 				}
-				return fmt.Errorf("please use the full package name to be specific")
+				fmt.Printf("\nSelect number to install (1-%d) or 'q' to cancel: ", len(searchApps))
+
+				var input string
+				fmt.Scanln(&input)
+				if strings.ToLower(input) == "q" {
+					return fmt.Errorf("cancelled")
+				}
+				idx, err := strconv.Atoi(input)
+				if err != nil || idx < 1 || idx > len(searchApps) {
+					return fmt.Errorf("invalid selection")
+				}
+
+				app = &searchApps[idx-1]
 			}
 		} else {
-			// If exactly one match, use it
 			app = &searchApps[0]
 			fmt.Printf("Resolved '%s' to %s (%s)\n", query, app.Name, app.PackageName)
 		}
 	}
 
-	// Now we have the app and its RepoURL
+	// Important: Use the repoURL from the selected app entry
 	actualRepoURL := app.RepoURL
-	if repoURL != "" {
-		actualRepoURL = repoURL
-	}
 
 	versions, err := db.GetVersions(app.ID, actualRepoURL)
 	if err != nil {
@@ -94,10 +126,10 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 	}
 
 	if bestVersion == nil {
-		return fmt.Errorf("no compatible version found for architecture %s", device.Arch)
+		return fmt.Errorf("no compatible version found for architecture %s in repository %s", device.Arch, actualRepoURL)
 	}
 
-	logger.Info.Printf("Best version: %s (code %d)", bestVersion.VersionName, bestVersion.VersionCode)
+	logger.Info.Printf("Best version: %s (code %d) from %s", bestVersion.VersionName, bestVersion.VersionCode, actualRepoURL)
 
 	apkPath := filepath.Join(xdg.CacheDir(), bestVersion.APKName)
 	url := actualRepoURL + "/" + bestVersion.APKName
@@ -123,11 +155,12 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 }
 
 func isCompatible(verArch, devArch string) bool {
-	if verArch == "" {
-		return true // Universal
+	if verArch == "" || devArch == "" || devArch == "Unknown" {
+		return true // Universal or unknown device
 	}
 	archs := strings.Split(verArch, ",")
 	for _, a := range archs {
+		a = strings.TrimSpace(a)
 		if a == devArch {
 			return true
 		}
@@ -191,7 +224,7 @@ func downloadFileWithResume(url string, path string, description string) error {
 		contentLength,
 		description,
 	)
-	bar.Add64(startByte)
+	_ = bar.Add64(startByte)
 
 	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
 	_ = bar.Finish()
