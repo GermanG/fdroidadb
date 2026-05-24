@@ -162,6 +162,12 @@ func syncV2(repoURL string) error {
 		return err
 	}
 
+	tx, err := db.BeginTx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
 	bar := progressbar.Default(int64(len(index.Packages)), "Updating database (V2)")
 	count := 0
 	for pkgName, pkg := range index.Packages {
@@ -186,7 +192,7 @@ func syncV2(repoURL string) error {
 			Signer:      signer,
 			RepoURL:     repoURL,
 		}
-		appID, err := db.SaveApp(dbApp)
+		appID, err := db.SaveAppTx(tx, dbApp)
 		if err != nil {
 			bar.Add(1)
 			continue
@@ -212,7 +218,7 @@ func syncV2(repoURL string) error {
 				Arch:        strings.Join(ver.Manifest.NativeCode, ","),
 				RepoURL:     repoURL,
 			}
-			if err := db.SaveVersion(dbVer); err != nil {
+			if err := db.SaveVersionTx(tx, dbVer); err != nil {
 				logger.Warn.Printf("Failed to save version for %s: %v", pkgName, err)
 			}
 		}
@@ -220,6 +226,11 @@ func syncV2(repoURL string) error {
 		bar.Add(1)
 	}
 	_ = bar.Finish()
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
 	fmt.Printf("\nSynced %d apps (V2).\n", count)
 
 	db.UpdateRepoHash(repoURL, entry.Index.SHA256)
@@ -281,6 +292,12 @@ func syncV1(repoURL string) error {
 		return err
 	}
 
+	tx, err := db.BeginTx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
 	bar := progressbar.Default(int64(len(index.Apps)), "Updating database (V1)")
 	count := 0
 	for _, app := range index.Apps {
@@ -312,7 +329,7 @@ func syncV1(repoURL string) error {
 			Signer:      signer,
 			RepoURL:     repoURL,
 		}
-		appID, err := db.SaveApp(dbApp)
+		appID, err := db.SaveAppTx(tx, dbApp)
 		if err != nil {
 			bar.Add(1)
 			continue
@@ -332,7 +349,7 @@ func syncV1(repoURL string) error {
 					Arch:        strings.Join(pkg.NativeCode, ","),
 					RepoURL:     repoURL,
 				}
-				if err := db.SaveVersion(dbVer); err != nil {
+				if err := db.SaveVersionTx(tx, dbVer); err != nil {
 					logger.Warn.Printf("Failed to save version for %s: %v", app.PackageName, err)
 				}
 			}
@@ -341,6 +358,11 @@ func syncV1(repoURL string) error {
 		bar.Add(1)
 	}
 	_ = bar.Finish()
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
 	fmt.Printf("\nSynced %d apps (V1).\n", count)
 	return nil
 }

@@ -43,6 +43,10 @@ type Version struct {
 
 var DB *sql.DB
 
+func BeginTx() (*sql.Tx, error) {
+	return DB.Begin()
+}
+
 func Init() error {
 	dataDir := xdg.DataDir()
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -116,16 +120,27 @@ func createTables() error {
 }
 
 func SaveApp(app App) (int, error) {
-	// We use INSERT ON CONFLICT DO UPDATE (UPSERT). This preserves the same primary key (id)
-	// for the app, preventing orphan records in the versions table when the app is updated.
-	res, err := DB.Exec(`INSERT INTO apps (package_name, name, summary, description, icon, signer, repo_url) 
+	return SaveAppTx(nil, app)
+}
+
+func SaveAppTx(tx *sql.Tx, app App) (int, error) {
+	var execer interface {
+		Exec(query string, args ...any) (sql.Result, error)
+		QueryRow(query string, args ...any) *sql.Row
+	} = DB
+
+	if tx != nil {
+		execer = tx
+	}
+
+	res, err := execer.Exec(`INSERT INTO apps (package_name, name, summary, description, icon, signer, repo_url) 
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(package_name, repo_url) DO UPDATE SET
 			name = excluded.name,
 			summary = excluded.summary,
 			description = excluded.description,
 			icon = excluded.icon,
-			signer = excluded.signer`,
+			signer = excluded.signer`, 
 		app.PackageName, app.Name, app.Summary, app.Description, app.Icon, app.Signer, app.RepoURL)
 	if err != nil {
 		return 0, err
@@ -139,7 +154,7 @@ func SaveApp(app App) (int, error) {
 	// the rowid of the updated row. However, to be 100% robust across all environments,
 	// if it returns 0, we query the ID.
 	if id == 0 {
-		err = DB.QueryRow("SELECT id FROM apps WHERE package_name = ? AND repo_url = ?", app.PackageName, app.RepoURL).Scan(&id)
+		err = execer.QueryRow("SELECT id FROM apps WHERE package_name = ? AND repo_url = ?", app.PackageName, app.RepoURL).Scan(&id)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get app id after upsert: %v", err)
 		}
@@ -149,7 +164,19 @@ func SaveApp(app App) (int, error) {
 }
 
 func SaveVersion(v Version) error {
-	_, err := DB.Exec(`INSERT OR REPLACE INTO versions (app_id, version_name, version_code, min_sdk, target_sdk, size, hash, apk_name, arch, repo_url)
+	return SaveVersionTx(nil, v)
+}
+
+func SaveVersionTx(tx *sql.Tx, v Version) error {
+	var execer interface {
+		Exec(query string, args ...any) (sql.Result, error)
+	} = DB
+
+	if tx != nil {
+		execer = tx
+	}
+
+	_, err := execer.Exec(`INSERT OR REPLACE INTO versions (app_id, version_name, version_code, min_sdk, target_sdk, size, hash, apk_name, arch, repo_url)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, v.AppID, v.VersionName, v.VersionCode, v.MinSDK, v.TargetSDK, v.Size, v.Hash, v.APKName, v.Arch, v.RepoURL)
 	return err
 }
