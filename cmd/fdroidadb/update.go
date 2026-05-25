@@ -17,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var dryRun bool
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update all installed applications",
@@ -54,6 +56,7 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
+		updateCount := 0
 		for _, pkg := range packages {
 			// Get all instances of this app across all repos
 			apps, err := db.GetAppByPackage(pkg)
@@ -86,10 +89,23 @@ var updateCmd = &cobra.Command{
 			}
 
 			if bestVersion != nil {
-				fmt.Printf("Updating %s (%s) from %d to %d (via %s)...\n", apps[0].Name, pkg, currentCode, bestVersion.VersionCode, bestRepoURL)
-				if err := fdroid.InstallApp(pkg, device, bestRepoURL, cfg.MaxRetries); err != nil {
-					fmt.Printf("Failed to update %s: %v\n", pkg, err)
+				if dryRun {
+					updateCount++
+					fmt.Printf("[DRY-RUN] Would update %s (%s) from %d to %d (via %s)\n", apps[0].Name, pkg, currentCode, bestVersion.VersionCode, bestRepoURL)
+				} else {
+					fmt.Printf("Updating %s (%s) from %d to %d (via %s)...\n", apps[0].Name, pkg, currentCode, bestVersion.VersionCode, bestRepoURL)
+					if err := fdroid.InstallApp(pkg, device, bestRepoURL, cfg.MaxRetries); err != nil {
+						fmt.Printf("Failed to update %s: %v\n", pkg, err)
+					}
 				}
+			}
+		}
+
+		if dryRun {
+			if updateCount > 0 {
+				fmt.Printf("\nDry-run completed. %d updates available.\n", updateCount)
+			} else {
+				fmt.Println("\nAll applications are up to date.")
 			}
 		}
 
@@ -99,4 +115,6 @@ var updateCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(updateCmd)
+	updateCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "display updates without installing them")
 }
+
