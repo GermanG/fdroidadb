@@ -15,13 +15,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/GermanG/fdroidadb/internal/adb"
+	"github.com/GermanG/fdroidadb/internal/cli"
 	"github.com/GermanG/fdroidadb/internal/db"
 	"github.com/GermanG/fdroidadb/internal/logger"
 	"github.com/GermanG/fdroidadb/internal/xdg"
 	"github.com/schollz/progressbar/v3"
 )
+
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
 
 func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int) error {
 	var app *db.App
@@ -36,15 +42,9 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 				for i, a := range apps {
 					fmt.Printf("[%d] %s (via %s)\n", i+1, a.Name, a.RepoURL)
 				}
-				fmt.Printf("Select number (1-%d) or 'q' to cancel: ", len(apps))
-				var input string
-				fmt.Scanln(&input)
-				if strings.ToLower(input) == "q" {
-					return fmt.Errorf("cancelled")
-				}
-				idx, err := strconv.Atoi(input)
-				if err != nil || idx < 1 || idx > len(apps) {
-					return fmt.Errorf("invalid selection")
+				idx, err := cli.ReadInt("Select number (1-"+strconv.Itoa(len(apps))+") or 'q' to cancel: ", 1, len(apps))
+				if err != nil {
+					return err
 				}
 				app = &apps[idx-1]
 			} else {
@@ -89,18 +89,10 @@ func InstallApp(query string, device *adb.Device, repoURL string, maxRetries int
 				for i, a := range searchApps {
 					fmt.Printf("[%d] %s (%s) [via %s]\n    %s\n", i+1, a.Name, a.PackageName, a.RepoURL, a.Summary)
 				}
-				fmt.Printf("\nSelect number to install (1-%d) or 'q' to cancel: ", len(searchApps))
-
-				var input string
-				fmt.Scanln(&input)
-				if strings.ToLower(input) == "q" {
-					return fmt.Errorf("cancelled")
+				idx, err := cli.ReadInt("\nSelect number to install (1-"+strconv.Itoa(len(searchApps))+") or 'q' to cancel: ", 1, len(searchApps))
+				if err != nil {
+					return err
 				}
-				idx, err := strconv.Atoi(input)
-				if err != nil || idx < 1 || idx > len(searchApps) {
-					return fmt.Errorf("invalid selection")
-				}
-
 				app = &searchApps[idx-1]
 			}
 		} else {
@@ -188,7 +180,7 @@ func downloadFileWithResume(url string, path string, description string) error {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startByte))
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}

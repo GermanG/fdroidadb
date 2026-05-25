@@ -368,7 +368,7 @@ func syncV1(repoURL string) error {
 }
 
 func downloadFile(url string, path string, description string) error {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
 	}

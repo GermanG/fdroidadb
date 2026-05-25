@@ -9,7 +9,8 @@ package adb
 
 import (
 	"fmt"
-	"strconv"
+
+	"github.com/GermanG/fdroidadb/internal/cli"
 )
 
 func SelectDevice(mock bool) (*Device, error) {
@@ -37,13 +38,10 @@ func SelectDevice(mock bool) (*Device, error) {
 	for i, d := range devices {
 		fmt.Printf("[%d] %s (%s, %s)\n", i, d.Model, d.Serial, d.Arch)
 	}
-	fmt.Print("Select device index: ")
 
-	var input string
-	fmt.Scanln(&input)
-	idx, err := strconv.Atoi(input)
-	if err != nil || idx < 0 || idx >= len(devices) {
-		return nil, fmt.Errorf("invalid selection")
+	idx, err := cli.ReadInt("Select device index: ", 0, len(devices)-1)
+	if err != nil {
+		return nil, fmt.Errorf("invalid selection: %v", err)
 	}
 
 	return &devices[idx], nil
